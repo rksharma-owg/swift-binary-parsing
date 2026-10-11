@@ -11,6 +11,7 @@
 
 import BinaryParsingMacros
 import MacroTesting
+import SwiftDiagnostics
 import SwiftParser
 import SwiftSyntax
 import SwiftSyntaxMacroExpansion
