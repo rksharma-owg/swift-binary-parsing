@@ -1,0 +1,39 @@
+name: Binary Parsing shared lint completion
+on:
+  workflow_dispatch:
+    inputs:
+      patch_sha:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+      - name: Verify tested source
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+        run: test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+      - uses: actions/checkout@v7
+        with:
+          repository: swiftlang/github-workflows
+          ref: a0e26726cfe9f46c9eec63f7af64060bb733761f
+          path: github-workflows
+      - name: Complete shared YAML and Python lint commands
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y yamllint
+          if [ ! -f .yamllint.yml ]; then
+            cat github-workflows/.github/workflows/configs/yamllint.yml > .yamllint.yml
+          fi
+          yamllint --strict --config-file .yamllint.yml .
+          pip3 install flake8 flake8-import-order
+          if [ ! -f .flake8 ]; then
+            cat github-workflows/.github/workflows/configs/.flake8 > .flake8
+          fi
+          flake8
