@@ -5,6 +5,10 @@ on:
       baseline_sha:
         required: true
         type: string
+      swift_versions:
+        required: true
+        default: '["6.2", "6.3", "6.4"]'
+        type: string
 permissions:
   contents: read
 jobs:
@@ -14,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift: ['6.3', '6.4']
+        swift: ${{ fromJson(inputs.swift_versions) }}
     steps:
       - uses: actions/checkout@v7
         with:
