@@ -1,0 +1,159 @@
+name: Binary Parsing fork preflight
+on:
+  workflow_dispatch:
+    inputs:
+      patch_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.2', nightly-main, nightly-6.3]
+    container:
+      image: ${{ startsWith(matrix.swift, 'nightly') && 'swiftlang/swift' || 'swift' }}:${{ matrix.swift }}-jammy
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+          fetch-depth: 0
+      - name: Verify source and merge baseline
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          git log -1 --format=fuller
+          echo "Baseline $BASE_SHA"
+          swift --version
+      - run: swift test --disable-experimental-prebuilts
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.2', '6.3', '6.4']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+          fetch-depth: 0
+      - name: Verify source and baseline
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+          BASE_SHA: ${{ inputs.base_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          echo "Baseline $BASE_SHA"
+      - uses: swift-actions/setup-swift@7e293214cba9e9225c93ce3267f17f6efdb656a8
+        with:
+          swift-version: ${{ matrix.swift }}
+      - run: |
+          swift --version
+          xcodebuild -version
+          swift test
+  embedded:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container:
+      image: swiftlang/swift:nightly-6.3-jammy
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+          fetch-depth: 0
+      - name: Verify source
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+          swift --version
+      - run: |
+          ENABLE_EMBEDDED=1 swift test --disable-experimental-prebuilts
+          .build/debug/EmbeddedExample
+  xcode-project:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+      - name: Verify source and select upstream Xcode version
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+          ls -d /Applications/Xcode*.app
+          test -d /Applications/Xcode_26.3.app
+          echo 'DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer' >> "$GITHUB_ENV"
+      - run: |
+          xcrun swift --version
+          xcodebuild -version
+          xcodebuild -project Xcode/BinaryParsing.xcodeproj build -scheme BinaryParsing
+  soundness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+      - name: Verify source
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+        run: test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+      - uses: actions/checkout@v7
+        with:
+          repository: swiftlang/github-workflows
+          ref: a0e26726cfe9f46c9eec63f7af64060bb733761f
+          path: shared-workflows
+      - uses: actions/checkout@v7
+        with:
+          repository: apple/swift-mmio
+          path: format-reference
+      - name: Shared soundness checks
+        env:
+          UNACCEPTABLE_WORD_LIST: blacklist whitelist slave master sane sanity insane insanity kill killed killing hang hung hanged hanging
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck yamllint
+          bash shared-workflows/.github/workflows/scripts/check-unacceptable-language.sh
+          bash shared-workflows/.github/workflows/scripts/check-license-header.sh
+          bash shared-workflows/.github/workflows/scripts/check-broken-symlinks.sh
+          git ls-files -z '*.sh' | xargs -0 --no-run-if-empty shellcheck
+          yamllint --strict --config-file shared-workflows/.github/workflows/configs/yamllint.yml .github
+          diff .swift-format format-reference/.swift-format
+          if git ls-files '*.py' | grep -q .; then
+            echo 'Unexpected Python sources: complete upstream Python lint mapping before submission.'
+            exit 1
+          fi
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: swiftlang/swift:nightly-6.2-jammy
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.patch_sha }}
+      - name: Verify and format
+        env:
+          PATCH_SHA: ${{ inputs.patch_sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+          swift --version
+          bash Scripts/format.sh
+          git diff --exit-code
