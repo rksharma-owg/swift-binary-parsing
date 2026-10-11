@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 import SwiftDiagnostics
+import SwiftParser
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
@@ -20,9 +21,8 @@ public struct MagicNumberStringMacro: ExpressionMacro {
     in context: some MacroExpansionContext
   ) -> ExprSyntax {
     guard let argument = node.arguments.first?.expression,
-      let segments = argument.as(StringLiteralExprSyntax.self)?.segments,
-      segments.count == 1,
-      case .stringSegment(let literalSegment)? = segments.first
+      let string = argument.as(StringLiteralExprSyntax.self)?
+        .representedLiteralValue
     else {
       context.diagnose(
         .init(
@@ -32,7 +32,6 @@ public struct MagicNumberStringMacro: ExpressionMacro {
       return ""
     }
 
-    let string = literalSegment.content.text
     guard string.allSatisfy(\.isASCII) else {
       context.diagnose(
         .init(
